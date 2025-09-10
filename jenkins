@@ -11,12 +11,6 @@ pipeline {
     }
 
     stages {
-        stage('Checkout') {
-            steps {
-                git branch: 'main', url: 'https://github.com/eslamfd/spring-petclinic_mine.git'
-            }
-        }
-
         stage('Build with Maven') {
             steps {
                 sh 'mvn clean package -DskipTests'
