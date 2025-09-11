@@ -3,7 +3,7 @@ pipeline {
 
     tools {
         maven 'Maven3' // configure in Jenkins global tools
-        jdk 'jdk17'    // or whatever PetClinic wants
+        jdk 'JDK17'    // or whatever PetClinic wants
     }
 
     environment {
