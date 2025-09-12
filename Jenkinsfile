@@ -2,12 +2,12 @@ pipeline {
     agent any
 
     tools {
-        maven 'Maven3' // configure in Jenkins global tools
-        jdk 'jdk17'    // or whatever PetClinic wants
+        maven 'Maven3' 
+        jdk 'jdk17'    
     }
 
     environment {
-        SONARQUBE = credentials('sonar-token') // Jenkins credential with your Sonar token
+        SONARQUBE = credentials('sonar-token') // Jenkins credential with Sonar token
     }
 
     stages {
@@ -35,14 +35,6 @@ pipeline {
                 }
             }
         }
-        /*
-        stage("Quality Gate") {
-            steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: false
-                }
-            }
-        } */
 
         stage('Archive Artifact') {
             steps {
