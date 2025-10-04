@@ -1,0 +1,137 @@
+name: CI-CD Pipeline for AWS Deployment
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      #1. Checkout repo
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Setup Docker
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+        with:
+          version: latest
+
+      #3. Set up Docker Compose
+      - name: Set up Docker Compose
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose
+          docker-compose --version
+
+      #4. Log in to Docker Hub (for pulling private image)
+      - name: Docker Hub login
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      #5. Pull/Build custom image
+      - name: Build custom image
+        run: docker pull aphex83/petclinic:latest
+
+      #6. Security scan
+      - name: Security scan with Trivy
+        uses: aquasecurity/trivy-action@0.12.0
+        with:
+          image-ref: aphex83/petclinic:latest
+          format: 'table'
+          exit-code: '0'   # don’t fail the pipeline yet, just report
+          ignore-unfixed: true
+
+      #7. Cache layers
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+     #8. Bring up stack (infra + bluegreen)
+      - name: Start infra + bluegreen stack
+        run: |
+          docker-compose -f infra/docker-compose.infra.yml -f infra/docker-compose.bluegreen.yml up -d
+
+      #9. Wait for services to be healthy
+      - name: Wait for services
+        run: |
+          echo "Waiting for containers..."
+          sleep 30
+          docker ps
+          # Simple health checks
+          curl -f http://localhost:80 || exit 1
+          curl -f http://localhost:9000 || exit 1   # SonarQube
+          curl -f http://localhost:9090 || exit 1   # Prometheus
+          curl -f http://localhost:3000 || exit 1   # Grafana
+
+      #10. Run tests against running app
+      - name: Run smoke tests
+        run: |
+          curl -f http://localhost:80/ || exit 1
+
+      #11. Healthcheck services
+      - name: Healthcheck PetClinic (via Nginx)
+        run: |
+          for i in {1..10}; do
+            if curl -s http://localhost/; then
+              echo "PetClinic is UP"
+              exit 0
+            fi
+            echo "Retrying..."
+            sleep 5
+          done
+          echo "PetClinic failed to start"
+          exit 1
+
+      - name: Healthcheck SonarQube
+        run: curl -f http://localhost:9000/api/system/health || exit 1
+
+      - name: Healthcheck Prometheus
+        run: curl -f http://localhost:9090/-/healthy || exit 1
+
+      #12. Run tests & Sonar analysis
+      - name: Run Unit Tests
+        run: ./mvnw test
+
+      - name: SonarQube Scan
+        run: ./mvnw sonar:sonar -Dsonar.host.url=http://localhost:9000 \
+                                -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+
+      #13. Deploy to AWS (example using SSH into EC2)
+      - name: Deploy to AWS EC2
+        if: github.ref == 'refs/heads/main'
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.AWS_EC2_HOST }}
+          username: ${{ secrets.AWS_EC2_USER }}
+          key: ${{ secrets.AWS_EC2_SSH_KEY }}
+          script: |
+            cd /home/${{ secrets.AWS_EC2_USER }}/spring_petclinic
+            git pull origin main
+            docker login -u ${{ secrets.DOCKERHUB_USERNAME }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+            docker-compose -f infra/docker-compose.infra.yml -f infra/docker-compose.bluegreen.yml up -d --build
+
+      #14. Collect logs (artifact upload)
+      - name: Collect Docker logs
+        if: always()
+        run: |
+          mkdir logs
+          docker-compose logs > logs/compose.log
+        continue-on-error: true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-logs
+          path: logs/
