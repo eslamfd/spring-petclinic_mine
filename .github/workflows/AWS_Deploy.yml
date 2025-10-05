@@ -37,13 +37,13 @@ jobs:
 
       #5. Pull/Build custom image
       - name: Build custom image
-        run: docker pull aphex83/petclinic:latest
+        run: docker pull aphex83/spring_petclinic:latest
 
       #6. Security scan
       - name: Security scan with Trivy
         uses: aquasecurity/trivy-action@0.12.0
         with:
-          image-ref: aphex83/petclinic:latest
+          image-ref: aphex83/spring_petclinic:latest
           format: 'table'
           exit-code: '0'   # don’t fail the pipeline yet, just report
           ignore-unfixed: true
