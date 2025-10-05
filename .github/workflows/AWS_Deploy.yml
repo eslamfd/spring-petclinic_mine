@@ -57,6 +57,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx-
 
+      # 7.5 Create docker network
+      - name: Create backend network
+        run: docker network create backend || true
+
      #8. Bring up stack (infra + bluegreen)
       - name: Start infra + bluegreen stack
         run: |
